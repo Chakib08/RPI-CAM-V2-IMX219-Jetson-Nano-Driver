@@ -35,6 +35,25 @@
 #include <media/imx219.h>
 #include "imx219_mode_tbls.h"
 
+/* imx219 - sensor parameter limits */
+#define IMX219_MIN_GAIN				0x0000
+#define IMX219_MAX_GAIN				0x00e8
+#define IMX219_MIN_FRAME_LENGTH			0x0100
+#define IMX219_MAX_FRAME_LENGTH			0xffff
+#define IMX219_MIN_COARSE_EXPOSURE		0x0001
+#define IMX219_MAX_COARSE_DIFF			0x0004
+
+/* imx219 sensor register address */
+#define IMX219_MODEL_ID_ADDR_MSB		0x0000
+#define IMX219_MODEL_ID_ADDR_LSB		0x0001
+#define IMX219_GAIN_ADDR			0x0157
+#define IMX219_FRAME_LENGTH_ADDR_MSB		0x0160
+#define IMX219_FRAME_LENGTH_ADDR_LSB		0x0161
+#define IMX219_COARSE_INTEG_TIME_ADDR_MSB	0x015a
+#define IMX219_COARSE_INTEG_TIME_ADDR_LSB	0x015b
+#define IMX219_FINE_INTEG_TIME_ADDR_MSB		0x0388
+#define IMX219_FINE_INTEG_TIME_ADDR_LSB		0x0389
+
 
 /* struct array used to match driver with a device tree */
 static const struct of_device_id imx219_of_match[] = {
@@ -73,29 +92,85 @@ static const struct regmap_config sensor_regmap_config = {
 	.use_single_rw = true,
 };
 
-/**
- * @brief Writes an 8-bit value to a specified register address of the IMX219 sensor.
- *
- * This function writes an 8-bit value to a specific register address of the IMX219 sensor using
- * the I2C interface. It retrieves the private data of the device and utilizes `regmap_write` to
- * perform the write operation.
- *
- * @param dev The device structure pointer representing the IMX219 sensor.
- * @param addr The 16-bit register address where the data should be written.
- * @param val The 8-bit value to write to the specified register.
- * @return 0 on success, or a negative error code on failure.
- */
-static inline int imx219_write_reg(struct device *dev, u16 addr, u8 val)
+static inline void imx219_get_frame_length_regs(imx219_reg *regs,
+	u32 frame_length)
 {
-    struct imx219 *priv = dev_get_drvdata(dev); // Get private data
+	regs->addr = IMX219_FRAME_LENGTH_ADDR_MSB;
+	regs->val = (frame_length >> 8) & 0xff;
+	(regs + 1)->addr = IMX219_FRAME_LENGTH_ADDR_LSB;
+	(regs + 1)->val = (frame_length) & 0xff;
+}
+
+static inline void imx219_get_coarse_integ_time_regs(imx219_reg *regs,
+	u32 coarse_time)
+{
+	regs->addr = IMX219_COARSE_INTEG_TIME_ADDR_MSB;
+	regs->val = (coarse_time >> 8) & 0xff;
+	(regs + 1)->addr = IMX219_COARSE_INTEG_TIME_ADDR_LSB;
+	(regs + 1)->val = (coarse_time) & 0xff;
+}
+
+static inline void imx219_get_gain_reg(imx219_reg *reg, u8 gain)
+{
+	reg->addr = IMX219_GAIN_ADDR;
+	reg->val = gain & 0xff;
+}
+
+/**
+ * @brief Reads an 8-bit register value from the IMX219 sensor.
+ *
+ * This function reads an 8-bit value from the specified register
+ * address of the IMX219 sensor using the regmap API.
+ *
+ * @param s_data Pointer to the camera_common_data structure, which holds
+ *               the regmap object for I2C communication.
+ * @param addr The 16-bit register address to read from.
+ * @param val Pointer to an 8-bit variable where the read value will be stored.
+ *
+ * @return 0 on success, or a negative error code if the read operation fails.
+ */
+static inline int imx219_read_reg(struct camera_common_data *s_data,
+                                  u16 addr, u8 *val)
+{
     int err = 0;
+    u32 reg_val = 0;
 
-    dev_info(dev, "%s: i2c write, 0x%x = %x\n", __func__, addr, val);
-    err = regmap_write(priv->regmap, addr, val);
-    if (err) {
-        dev_err(dev, "%s: i2c write, 0x%x = %x failed\n", __func__, addr, val);
-    }
+    err = regmap_read(s_data->regmap, addr, &reg_val);
+    *val = reg_val & 0xff;
 
+    return err;
+}
+
+/**
+ * @brief Writes a 8-bit value to a register of the IMX219 sensor.
+ *
+ * This function writes a 16-bit value to the specified register address
+ * of the IMX219 sensor and verifies the write by reading back the register
+ * value. Any error during the write is logged.
+ *
+ * @param s_data Pointer to the camera_common_data structure, which holds
+ *               the regmap object for I2C communication.
+ * @param addr The 16-bit register address to write to.
+ * @param val The 8-bit value to write to the register.
+ *
+ * @return 0 on success, or a negative error code if the write operation fails.
+ */
+static int imx219_write_reg(struct camera_common_data *s_data,
+                            u16 addr, u8 val)
+{
+    int err;
+    struct device *dev = s_data->dev;
+    unsigned int result;
+    
+    regmap_read(s_data->regmap, addr, &result);
+    dev_info(dev, "i2c read camera, 0x%x = %x\n", addr, result);
+    usleep_range(1000, 1010);
+    err = regmap_write(s_data->regmap, addr, val);
+    if (err)
+        dev_err(dev, "%s: i2c write failed, 0x%x = %x\n", __func__, addr, val);
+    usleep_range(1000, 1010);
+    regmap_read(s_data->regmap, addr, &result);
+    dev_info(dev, "i2c read after write camera, 0x%x = %x\n", addr, result);
     return err;
 }
 
@@ -149,38 +224,6 @@ static int imx219_write_table(struct imx219 *priv, const imx219_reg table[])
 	
 	dev_info(&client->dev, "Finished writing registers table");
 	return ret;
-}
-
-/**
- * @brief Reads an 8-bit value from a specified register address of the IMX219 sensor.
- *
- * This function reads an 8-bit value from a specific register address of the IMX219 sensor using
- * the I2C interface. It retrieves the private data of the device and utilizes `regmap_read` to
- * perform the read operation. The result is stored in the provided `val` pointer.
- *
- * @param dev The device structure pointer representing the IMX219 sensor.
- * @param addr The 16-bit register address from where the data should be read.
- * @param val A pointer to a variable where the 8-bit value read from the register will be stored.
- * @return 0 on success, or a negative error code on failure.
- */
-static inline int imx219_read_reg(struct device *dev, u16 addr, u8 *val)
-{
-    struct imx219 *priv = dev_get_drvdata(dev); // Get private data
-    int err = 0;
-    u32 reg_val = 0; // reg_val is used to store the value read from the register address in 32 bits
-
-    // Read the register value and store it in reg_val
-    err = regmap_read(priv->regmap, addr, &reg_val);
-    if (err) {
-        dev_err(dev, "%s: i2c read, 0x%x failed\n", __func__, addr);
-        return err;
-    }
-    dev_info(dev, "%s: i2c read, 0x%x = %x\n", __func__, addr, reg_val);
-
-    // Store only the least significant 8 bits in val
-    *val = reg_val & 0xff;
-
-    return 0;
 }
 
 static int imx219_set_group_hold(struct tegracam_device *tc_dev, bool val)
@@ -863,7 +906,7 @@ static int imx219_probe(struct i2c_client *client,
 	struct imx219 *priv;
 	int err;
 
-	dev_dbg(dev, "probing v4l2 sensor at addr 0x%0x\n", client->addr);
+	dev_info(dev, "probing imx219 v4l2 sensor at addr 0x%0x\n", client->addr);
 
 	if (!IS_ENABLED(CONFIG_OF) || !client->dev.of_node)
 		return -EINVAL;
