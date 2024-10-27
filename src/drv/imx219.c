@@ -802,33 +802,6 @@ static struct camera_common_sensor_ops imx219_common_ops = {
 	.stop_streaming = imx219_stop_streaming,
 };
 
-/**
- * @brief Defines the supported device IDs for the IMX219 I2C driver.
- *
- * The imx219_id table provides a list of compatible devices for the IMX219 driver,
- * allowing the Linux kernel to automatically match this driver with any I2C device
- * named "imx219".
- * 
- * The `MODULE_DEVICE_TABLE` macro exposes this table to the kernel, enabling 
- * automatic loading and binding of this driver with the IMX219 sensor device.
- * 
- * @code
- * static const struct i2c_device_id imx219_id[] = {
- *     { "imx219", 0 },
- *     { }
- * };
- * MODULE_DEVICE_TABLE(i2c, imx219_id);
- * @endcode
- * 
- * @note
- * - `imx219_id` is an array of `i2c_device_id` structs.
- * - Each entry in the table consists of:
- *     - A string representing the device name ("imx219").
- *     - An associated data field, set to `0` in this case.
- *
- * @file imx219.c
- */
-
 static int imx219_board_setup(struct imx219 *priv)
 {
 	struct camera_common_data *s_data = priv->s_data;
@@ -968,6 +941,32 @@ static int imx219_remove(struct i2c_client *client)
 	return 0;
 }
 
+/**
+ * @brief Defines the supported device IDs for the IMX219 I2C driver.
+ *
+ * The imx219_id table provides a list of compatible devices for the IMX219 driver,
+ * allowing the Linux kernel to automatically match this driver with any I2C device
+ * named "imx219".
+ * 
+ * The `MODULE_DEVICE_TABLE` macro exposes this table to the kernel, enabling 
+ * automatic loading and binding of this driver with the IMX219 sensor device.
+ * 
+ * @code
+ * static const struct i2c_device_id imx219_id[] = {
+ *     { "imx219", 0 },
+ *     { }
+ * };
+ * MODULE_DEVICE_TABLE(i2c, imx219_id);
+ * @endcode
+ * 
+ * @note
+ * - `imx219_id` is an array of `i2c_device_id` structs.
+ * - Each entry in the table consists of:
+ *     - A string representing the device name ("imx219").
+ *     - An associated data field, set to `0` in this case.
+ *
+ * @file imx219.c
+ */
 static const struct i2c_device_id imx219_id[] = {
     { "imx219", 0 },
     { }
