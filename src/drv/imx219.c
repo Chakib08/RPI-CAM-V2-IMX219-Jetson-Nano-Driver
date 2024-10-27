@@ -100,6 +100,58 @@ static inline int imx219_write_reg(struct device *dev, u16 addr, u8 val)
 }
 
 /**
+ * @brief Writes a series of register values to the IMX219 sensor.
+ *
+ * This function iterates over a table of register values and writes them
+ * to the IMX219 sensor via I2C. For each register, it retries up to
+ * three times if a write fails, and uses a specific delay for wait commands.
+ *
+ * @param priv Pointer to the IMX219 device structure containing the
+ *             necessary I2C client and data.
+ * @param table Array of register-value pairs defining the table of
+ *              registers to be written to the sensor. The table ends
+ *              when the address `IMX219_TABLE_END` is reached.
+ * 
+ * @return 0 on success, or the last non-zero error code if any write
+ *         operation failed.
+ *
+ * @note If a register in the table has the address `IMX219_TABLE_WAIT_MS`,
+ *       the function pauses for the specified amount of milliseconds.
+ */
+static int imx219_write_table(struct imx219 *priv, const imx219_reg table[])
+{
+	int ret = 0;
+	int i = 0;
+	int retry;
+	struct camera_common_data *s_data = priv->s_data;
+	struct i2c_client *client = priv->i2c_client;
+	
+	dev_info(&client->dev, "writing registers table");
+	
+	while (table[i].addr != IMX219_TABLE_END) {
+		dev_info(&client->dev, "writing register %x\n", table[i].addr);
+		
+		for (retry = 0; retry < 3; retry++) {
+		    if (IMX219_TABLE_WAIT_MS == table[i].addr) {
+			    msleep(table[i].val);
+			    break;
+		    }
+		    
+		    ret = imx219_write_reg(s_data, table[i].addr, table[i].val);
+		    if (!ret) {
+			    dev_info(&client->dev, "SUCCESS writing register %x\n", table[i].addr);
+			    break;
+		    }
+		    usleep_range(1000, 1010);
+		}
+		i++;
+	}
+	
+	dev_info(&client->dev, "Finished writing registers table");
+	return ret;
+}
+
+/**
  * @brief Reads an 8-bit value from a specified register address of the IMX219 sensor.
  *
  * This function reads an 8-bit value from a specific register address of the IMX219 sensor using
